@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getBaseQuestions } from "@/lib/prompts";
-import { appendTurn, createSession } from "@/lib/sessionStore";
+import { createSessionState } from "@/lib/sessionStore";
 import { groqChatJson } from "@/lib/groq";
 
 export const runtime = "nodejs";
@@ -48,7 +48,7 @@ Keep questions concise and conversational.`
       questions = getBaseQuestions(targetClass);
     }
 
-    const state = createSession(questions, targetClass);
+    const state = createSessionState(questions, targetClass);
 
     const greeting =
       "Hi! I'm Simran, and I’ll be your interviewer today. Let’s start with a quick introduction.";
@@ -56,22 +56,14 @@ Keep questions concise and conversational.`
     const firstQuestion = state.questions[0]!;
     const assistantText = `${greeting}\n\n${firstQuestion}`;
 
-    appendTurn(state.sessionId, { role: "assistant", text: greeting });
-    appendTurn(state.sessionId, { role: "assistant", text: firstQuestion });
+    state.transcript.push({ role: "assistant", text: greeting, at: Date.now() });
+    state.transcript.push({ role: "assistant", text: firstQuestion, at: Date.now() });
 
-    const res = NextResponse.json({
-      sessionId: state.sessionId,
+    return NextResponse.json({
+      state, // Send entire initial state to the client
       assistantText,
       locale: body?.locale ?? "en",
     });
-    res.cookies.set("ai_tutor_session", state.sessionId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60,
-    });
-    return res;
   } catch (err: unknown) {
     return NextResponse.json(
       { error: "START_FAILED", message: err instanceof Error ? err.message : "Unknown error" },
@@ -79,4 +71,3 @@ Keep questions concise and conversational.`
     );
   }
 }
-

@@ -2,38 +2,25 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { EvaluationReport } from "@/lib/types";
 import { buildEvaluationPrompt, INTERVIEWER_PERSONA } from "@/lib/prompts";
-import { getSession } from "@/lib/sessionStore";
 import { groqChatJson } from "@/lib/groq";
 
 export const runtime = "nodejs";
 
 const BodySchema = z.object({
-  sessionId: z.string().optional(),
+  transcript: z.array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      text: z.string(),
+    })
+  ).optional(),
 });
-
-function getCookieSessionId(req: Request) {
-  return req.headers
-    .get("cookie")
-    ?.split(";")
-    .map((p) => p.trim())
-    .find((p) => p.startsWith("ai_tutor_session="))
-    ?.split("=")[1];
-}
 
 export async function POST(req: Request) {
   try {
     const body = BodySchema.parse(await req.json().catch(() => ({})));
-    const sessionId = body.sessionId ?? getCookieSessionId(req) ?? undefined;
-    const state = getSession(sessionId);
-    if (!state) {
-      return NextResponse.json(
-        { error: "NO_SESSION", message: "Session expired or not found." },
-        { status: 401 },
-      );
-    }
+    const transcript = body.transcript;
 
-    const transcript = state.transcript;
-    if (transcript.length < 2) {
+    if (!transcript || transcript.length < 2) {
       return NextResponse.json(
         { error: "NO_TRANSCRIPT", message: "Not enough transcript to evaluate." },
         { status: 400 },
@@ -45,7 +32,7 @@ export async function POST(req: Request) {
       temperature: 0.2,
       messages: [
         { role: "system", content: INTERVIEWER_PERSONA },
-        { role: "user", content: buildEvaluationPrompt(transcript) },
+        { role: "user", content: buildEvaluationPrompt(transcript as any) }, // cast to bypass strictly typed 'at' field
       ],
     });
 
@@ -63,7 +50,7 @@ export async function POST(req: Request) {
     report.evidence = Array.isArray(report.evidence) ? report.evidence : [];
     report.ideal_answers = Array.isArray(report.ideal_answers) ? report.ideal_answers : [];
     report.final_decision = report.final_decision === "PASS" ? "PASS" : "REJECT";
-    report.transcript = transcript;
+    report.transcript = transcript as any;
 
     return NextResponse.json(report);
   } catch (err: unknown) {
@@ -73,4 +60,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

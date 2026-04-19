@@ -131,9 +131,12 @@ export default function InterviewPage() {
         });
         if (!res.ok) throw new Error("Failed to start interview.");
         const data = await res.json();
-        sessionStorage.setItem("ai_tutor_session", data.sessionId);
-        setSessionId(data.sessionId);
-        fireEvent("boot_ok", data.sessionId);
+        
+        let localState = data.state;
+        
+        // Use sessionId purely for tracking/logging, it no longer dictates memory lookup
+        setSessionId(localState.sessionId);
+        fireEvent("boot_ok", localState.sessionId);
 
         const abort = new AbortController();
         loopAbortRef.current = abort;
@@ -142,13 +145,13 @@ export default function InterviewPage() {
           // AI_SPEAKING
           await new Promise<void>((resolve) => {
             setStatus("speaking");
-            fireEvent("ai_speaking_start", data.sessionId);
+            fireEvent("ai_speaking_start", localState.sessionId);
             speakTurnBased(data.assistantText, { 
               onStart: () => setTurns([{ role: "assistant", text: data.assistantText }]),
               onEnd: () => resolve() 
             });
           });
-          fireEvent("ai_speaking_end", data.sessionId);
+          fireEvent("ai_speaking_end", localState.sessionId);
 
           const waitStart = Date.now();
           while (!abort.signal.aborted && !recorderRef.current) {
@@ -161,29 +164,29 @@ export default function InterviewPage() {
           while (!abort.signal.aborted) {
             // LISTENING
             setStatus("listening");
-            fireEvent("listening_start", data.sessionId);
+            fireEvent("listening_start", localState.sessionId);
             let userBlob: Blob;
             try {
               const rec = recorderRef.current;
               if (!rec) throw new Error("Recorder not ready");
               userBlob = await rec.startTurn();
-              fireEvent("listening_end", data.sessionId, { bytes: userBlob.size, type: userBlob.type });
+              fireEvent("listening_end", localState.sessionId, { bytes: userBlob.size, type: userBlob.type });
             } catch (e) {
               if (abort.signal.aborted) return;
-              fireEvent("listening_error", data.sessionId, {
+              fireEvent("listening_error", localState.sessionId, {
                 message: e instanceof Error ? e.message : "unknown",
               });
               if (e instanceof Error && e.message === "TURN_TOO_SHORT") {
                 const msg = "I couldn’t hear anything—could you try again?";
                 await new Promise<void>((resolve) => {
                   setStatus("speaking");
-                  fireEvent("ai_speaking_start", data.sessionId);
+                  fireEvent("ai_speaking_start", localState.sessionId);
                   speakTurnBased(msg, { 
                     onStart: () => setTurns((t) => [...t, { role: "assistant", text: msg }]),
                     onEnd: () => resolve() 
                   });
                 });
-                fireEvent("ai_speaking_end", data.sessionId);
+                fireEvent("ai_speaking_end", localState.sessionId);
                 continue;
               }
               setError(
@@ -197,17 +200,19 @@ export default function InterviewPage() {
 
             // PROCESSING
             setStatus("thinking");
-            fireEvent("processing_start", data.sessionId);
+            fireEvent("processing_start", localState.sessionId);
             const fd = new FormData();
             fd.append("audio", userBlob, "turn.webm");
+            fd.append("state", JSON.stringify(localState)); // Pass the full state statelessly!
 
-            const utterRes = await fetch(
-              `/api/process-utterance?sessionId=${encodeURIComponent(data.sessionId)}`,
-              { method: "POST", body: fd },
-            );
+            const utterRes = await fetch("/api/process-utterance", { method: "POST", body: fd });
             const utter = await utterRes.json();
             if (!utterRes.ok) throw new Error(utter?.message ?? "Failed to process utterance.");
-            fireEvent("processing_done", data.sessionId, { action: utter?.decision?.action });
+
+            // Update our client state with the server's modifications
+            localState = utter.state;
+
+            fireEvent("processing_done", localState.sessionId, { action: utter?.decision?.action });
 
             if (utter.action === "retry") {
               await new Promise<void>((resolve) => {
@@ -221,7 +226,7 @@ export default function InterviewPage() {
             }
 
             const userText: string = utter.transcriptedText;
-            const decision: UtteranceDecision = utter.decision;
+            const decision = utter.decision;
             const assistantText: string = utter.assistantText;
 
             setTurns((prev) => [...prev, { role: "user", text: userText }]);
@@ -229,18 +234,20 @@ export default function InterviewPage() {
             // AI_SPEAKING 
             await new Promise<void>((resolve) => {
               setStatus("speaking");
-              fireEvent("ai_speaking_start", data.sessionId);
+              fireEvent("ai_speaking_start", localState.sessionId);
               speakTurnBased(assistantText, { 
                 onStart: () => setTurns((prev) => [...prev, { role: "assistant", text: assistantText }]),
                 onEnd: () => resolve() 
               });
             });
-            fireEvent("ai_speaking_end", data.sessionId);
+            fireEvent("ai_speaking_end", localState.sessionId);
 
-            if (decision.action === "end" || utter.state?.done) {
+            if (decision.action === "end" || localState.done) {
               setStatus("ending");
+              // Write full end state to browser storage for the results page to read
+              sessionStorage.setItem("ai_tutor_state", JSON.stringify(localState));
               setTimeout(() => {
-                window.location.href = `/results?sessionId=${encodeURIComponent(data.sessionId)}`;
+                window.location.href = `/results`;
               }, 600);
               return;
             }

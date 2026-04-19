@@ -53,20 +53,19 @@ export default function ResultsPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const id = url.searchParams.get("sessionId") ?? sessionStorage.getItem("ai_tutor_session");
-    setSessionId(id);
-  }, []);
-
-  useEffect(() => {
-    if (!sessionId) return;
     async function load() {
       setError(null);
       try {
+        const savedStateStr = sessionStorage.getItem("ai_tutor_state");
+        if (!savedStateStr) {
+           throw new Error("No interview data found. Please complete an interview first.");
+        }
+        const state = JSON.parse(savedStateStr);
+
         const res = await fetch("/api/generate-report", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sessionId }),
+          body: JSON.stringify({ transcript: state.transcript }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message ?? "Failed to generate report.");
@@ -76,7 +75,7 @@ export default function ResultsPage() {
       }
     }
     load();
-  }, [sessionId]);
+  }, []);
 
   if (error) {
     return (

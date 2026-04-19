@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { INTERVIEWER_PERSONA, buildTurnPrompt } from "@/lib/prompts";
-import { appendTurn, endSession, getSession, setState } from "@/lib/sessionStore";
 import { groqChatJson, groqTranscribe } from "@/lib/groq";
+import type { InterviewState } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-const QuerySchema = z.object({
-  sessionId: z.string().optional(),
-});
 
 type TurnJson = {
   action: "followup" | "next" | "end";
@@ -26,12 +21,6 @@ type TurnJson = {
   };
 };
 
-function getSessionId(req: Request) {
-  const url = new URL(req.url);
-  const parsed = QuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()));
-  return parsed.success ? parsed.data.sessionId : undefined;
-}
-
 function looksLikeSilenceOrJunk(text: string) {
   const t = text.trim();
   if (!t) return true;
@@ -44,25 +33,21 @@ function looksLikeSilenceOrJunk(text: string) {
 export async function POST(req: Request) {
   try {
     const t0 = Date.now();
-    const urlSessionId = getSessionId(req);
-    const cookieSessionId = req.headers
-      .get("cookie")
-      ?.split(";")
-      .map((p) => p.trim())
-      .find((p) => p.startsWith("ai_tutor_session="))
-      ?.split("=")[1];
-
-    const sessionId = urlSessionId ?? cookieSessionId ?? undefined;
-    const state = getSession(sessionId);
-    if (!state) {
-      return NextResponse.json(
-        { error: "NO_SESSION", message: "Session expired or not found." },
-        { status: 401 },
-      );
-    }
-
     const form = await req.formData();
     const audioFile = form.get("audio");
+    
+    // Completely stateless: read the fully passed state from the client
+    const stateStr = form.get("state");
+    if (!stateStr || typeof stateStr !== "string") {
+      return NextResponse.json(
+        { error: "NO_STATE", message: "Client did not provide state payload." },
+        { status: 400 },
+      );
+    }
+    
+    // Parse the state
+    const state: InterviewState = JSON.parse(stateStr);
+
     if (!(audioFile instanceof File)) {
       return NextResponse.json(
         { error: "NO_AUDIO", message: "No audio uploaded." },
@@ -73,6 +58,7 @@ export async function POST(req: Request) {
     const sttStart = Date.now();
     const userText = await groqTranscribe({ file: audioFile, language: "en" });
     const sttMs = Date.now() - sttStart;
+    
     if (looksLikeSilenceOrJunk(userText)) {
       return NextResponse.json({
         ok: true,
@@ -81,10 +67,12 @@ export async function POST(req: Request) {
         message:
           "I didn’t quite catch that—could you try again? Take your time and speak a bit closer to the mic.",
         timings: { sttMs, llmMs: 0, totalMs: Date.now() - t0 },
+        state // Return unchanged state for retries
       });
     }
 
-    appendTurn(state.sessionId, { role: "user", text: userText });
+    // Append user input
+    state.transcript.push({ role: "user", text: userText, at: Date.now() });
 
     const currentQuestion = state.questions[state.currentQuestionIndex] ?? "";
     const recentTranscript = state.transcript.slice(-12);
@@ -122,7 +110,7 @@ export async function POST(req: Request) {
         // Fallback follow-up
         nextPrompt = "Could you walk me through a concrete example of how you’d do that?";
       }
-      setState(state.sessionId, { followUpCount: state.followUpCount + 1 });
+      state.followUpCount += 1;
     }
 
     if (action === "next") {
@@ -131,7 +119,8 @@ export async function POST(req: Request) {
         action = "end";
       } else {
         nextPrompt = state.questions[nextIndex]!;
-        setState(state.sessionId, { currentQuestionIndex: nextIndex, followUpCount: 0 });
+        state.currentQuestionIndex = nextIndex;
+        state.followUpCount = 0;
       }
     }
 
@@ -140,7 +129,7 @@ export async function POST(req: Request) {
       assistantText =
         assistantText ||
         "That was really helpful—thank you. I’m going to take a moment to review everything and put together your feedback.";
-      endSession(state.sessionId);
+      state.done = true;
     }
 
     if (!assistantText) {
@@ -151,18 +140,15 @@ export async function POST(req: Request) {
           : `Got it—thank you.\n\n${nextPrompt}`;
     }
 
-    appendTurn(state.sessionId, { role: "assistant", text: assistantText });
+    state.transcript.push({ role: "assistant", text: assistantText, at: Date.now() });
+    state.updatedAt = Date.now();
 
     return NextResponse.json({
       ok: true,
       transcriptedText: userText,
       assistantText,
       decision: { action, nextPrompt, reason: turn.reason, flags: turn.flags },
-      state: {
-        currentQuestionIndex: getSession(state.sessionId)?.currentQuestionIndex ?? 0,
-        followUpCount: getSession(state.sessionId)?.followUpCount ?? 0,
-        done: getSession(state.sessionId)?.done ?? false,
-      },
+      state, // Return mutated state so frontend can overwrite its copy
       timings: { sttMs, llmMs, totalMs: Date.now() - t0 },
     });
   } catch (err: unknown) {
@@ -172,4 +158,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
