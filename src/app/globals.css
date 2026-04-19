@@ -2,25 +2,53 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1F2937;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-inter);
+  
+  --color-primary: #6C3BFF;
+  --color-primary-hover: #5A2EE3; /* Slightly darker purple for hover */
+  --color-accent: #FACC15;
+  --color-brand-bg: #F8F9FC;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Voice Interview Animations */
+@keyframes glow-purple {
+  0% { box-shadow: 0 0 0 0 rgba(108, 59, 255, 0.4); }
+  70% { box-shadow: 0 0 0 15px rgba(108, 59, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(108, 59, 255, 0); }
+}
+
+@keyframes pulse-yellow {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.4); }
+  70% { transform: scale(1); box-shadow: 0 0 0 15px rgba(250, 204, 21, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+}
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-glow-purple {
+  animation: glow-purple 2s infinite;
+}
+
+.animate-pulse-yellow {
+  animation: pulse-yellow 2s infinite;
+}
+
+.animate-wave-1 { animation: wave 1.2s ease-in-out infinite 0.0s; }
+.animate-wave-2 { animation: wave 1.2s ease-in-out infinite 0.2s; }
+.animate-wave-3 { animation: wave 1.2s ease-in-out infinite 0.4s; }
