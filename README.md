@@ -1,5 +1,7 @@
 # AI Tutor Screener
 
+**🔴 Live Demo:** [https://tutorscreenercuemath.netlify.app/](https://tutorscreenercuemath.netlify.app/)
+
 A production-grade, voice-based AI interviewer designed to screen and evaluate potential math tutors. The system acts as a conversational AI persona ("Simran"), conducting dynamic voice interviews, asking adaptive follow-up questions, and providing a structured evaluation report.
 
 ## 🚀 Features
@@ -57,9 +59,11 @@ A production-grade, voice-based AI interviewer designed to screen and evaluate p
 
 ## 🚀 Deployment
 
-The easiest way to deploy this Next.js app is using the [Vercel Platform](https://vercel.com/):
+This application operates on a 100% Stateless Client-Driven Architecture and is deployed on **Netlify**.
+
+**Live Link:** [https://tutorscreenercuemath.netlify.app/](https://tutorscreenercuemath.netlify.app/)
 
 1. Push your code to a GitHub repository.
-2. Import the project into your Vercel Dashboard.
-3. Add the required environment variables (`GROQ_API_KEY`, `SARVAM_API_KEY`, etc.) in the project settings.
-4. Deploy. All API routes run safely server-side, protecting your keys.
+2. Import the project into your Netlify dashboard.
+3. Add the required environment variables (`GROQ_API_KEY`, `SARVAM_API_KEY`, etc.) in the Netlify site settings.
+4. Deploy. All API routes run safely server-side without requiring persistent server memory.
